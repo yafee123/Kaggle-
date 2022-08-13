@@ -1,0 +1,317 @@
+---
+title: "Spaceship Titanic"
+author: "Yafee Ishraq"
+date: "2022-08-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Install packages
+
+```{r,eval=FALSE}
+
+install.packages("data.table")
+install.packages("tidyverse")
+install.packages("flextable")
+install.packages("ggcorrplot")
+
+
+```
+
+# Import packages
+
+```{r,eval=TRUE}
+library("data.table")
+library("tidyverse")
+library("flextable")
+library("ggcorrplot")
+```
+
+# Unzip file
+```{r,eval=FALSE}
+
+unzip("spaceship-titanic.zip")
+                    
+```
+
+# Read the data
+```{r,eval=TRUE}
+
+data_train <- fread("train.csv")
+data_test  <- fread("test.csv")
+sample_submission <- fread("sample_submission.csv")
+
+```
+
+
+# Data wrangling and exploratory analysis
+
+## Missing value analysis
+
+### Transform quotes to NA
+```{r,eval=TRUE}
+
+# Transform quotes to NA value
+data_train[,colnames(data_train):=lapply(.SD,function(x)ifelse(is.na(x)|x=="",NA,x)),.SDcols = colnames(data_train)]
+
+
+```
+
+
+## Missing value analysis
+```{r,eval=TRUE}
+
+# Classify class for each column
+col_class <- sapply(data_train,class)
+
+col_class <- data.table(Column = names(col_class),
+                        Class = col_class)
+
+# Checking if the value is NA or not on each column
+na_values <- data_train[,lapply(.SD,
+                    function(x)is.na(x)),
+           .SDcols = colnames(data_train)]
+
+# Number of NA values per column
+na_values_col <- na_values[,lapply(.SD,function(x)sum(x)),
+                           .SDcols = colnames(na_values)]
+
+# Pivot longer
+na_values_col <- melt(na_values_col,measure.vars = colnames(na_values_col),
+variable.name = "Column",value.name = "Number of missing values")
+
+# Join column class
+na_values_col <- merge(na_values_col,
+                       col_class,
+                       by.x = "Column",
+                       by.y = "Column",
+                       all.x = TRUE)
+
+# Sort
+setorder(na_values_col,-`Number of missing values`)
+
+# Print table
+na_values_col %>% 
+  flextable() %>%
+  set_caption("Number of missing values per column")
+  
+# Compute number of missing values per row
+na_values[,sum_na:=rowSums(.SD),.SDcols = colnames(na_values)] 
+
+na_values_row <- data.table(`Number of complete rows` = na_values[sum_na==0,.N],
+`Number of uncomplete rows` = na_values[sum_na>0,.N])
+       
+# Print table                         
+na_values_row %>% 
+  flextable() %>% 
+  colformat_int(big.mark = " ")
+
+
+```
+
+## Preprossesing data
+
+```{r,eval=TRUE}
+
+# ------------- Training dataset ---------------------------------- 
+data_train[,VIP:=ifelse(VIP==TRUE,"VIP service","No VIP service")]
+data_train[,CryoSleep:=ifelse(CryoSleep==TRUE,"Cryogenic sleep",
+                              "No cryogenic sleep")]
+
+
+# Transform to factors
+data_train[,HomePlanet:=as.factor(HomePlanet)]
+data_train[,CryoSleep:=as.factor(CryoSleep)]
+data_train[,Destination :=as.factor(Destination )]
+data_train[,VIP:=as.factor(VIP)]
+
+
+# ------------- Test dataset ---------------------------------- 
+
+data_test[,VIP:=ifelse(VIP==TRUE,"VIP service","No VIP service")]
+data_test[,CryoSleep:=ifelse(CryoSleep==TRUE,"Cryogenic sleep",
+                              "No cryogenic sleep")]
+
+
+# Transform to factors
+data_test[,HomePlanet:=as.factor(HomePlanet)]
+data_test[,CryoSleep:=as.factor(CryoSleep)]
+data_test[,Destination :=as.factor(Destination )]
+data_test[,VIP:=as.factor(VIP)]
+
+# Split cabin column into 3 columns
+data_train[,c("Deck","Num","Side"):=tstrsplit(Cabin,"/")]
+
+```
+
+
+## Analyzing the target variable
+
+```{r,eval=TRUE}
+
+# How many got transported 
+data_train %>% 
+  mutate(Transported=if_else(Transported==TRUE,"Transported","Not transported")) %>% 
+  group_by(Transported) %>% 
+  summarise(`Number of observations` = n()) %>% 
+  ggplot(aes(x = Transported,
+             y = `Number of observations`))+
+  geom_bar(stat = "identity")+
+   geom_text(aes(label = `Number of observations`),
+             vjust = 2)+
+  xlab("")+
+  theme_bw()
+
+plot_function <- function(x){
+  
+  
+  data_train %>% 
+  mutate(Transported=if_else(Transported==TRUE,"Transported","Not transported")) %>%
+  group_by(get(x),Transported) %>% 
+  summarise(Gordex = n()) %>% 
+  ggplot(aes_string(x = "Transported",
+             y = "Gordex",
+             fill = x))+
+  geom_bar(stat = "identity")+
+  xlab("")+
+  scale_y_continuous(n.breaks=6)+
+  theme_bw()
+  
+}
+
+# How many got transported, grouped by HomePlanet 
+data_train %>% 
+  mutate(Transported=if_else(Transported==TRUE,"Transported","Not transported")) %>%
+  group_by(HomePlanet,Transported) %>% 
+  summarise(`Number of observations` = n()) %>% 
+  ggplot(aes(x = Transported,
+             y = `Number of observations`,
+             fill = HomePlanet))+
+  geom_bar(stat = "identity")+
+  xlab("")+
+  scale_y_continuous(n.breaks=6)+
+  theme_bw()
+
+# How many got transported, grouped by destination 
+data_train %>% 
+  filter(!is.na(Destination)) %>% 
+  mutate(Transported=if_else(Transported==TRUE,"Transported","Not transported")) %>%
+  group_by(Destination,Transported) %>% 
+  summarise(`Number of observations` = n()) %>% 
+  ggplot(aes(x = Transported,
+             y = `Number of observations`,
+             fill = Destination))+
+  geom_bar(stat = "identity")+
+  xlab("")+
+  scale_y_continuous(n.breaks=6)+
+  theme_bw()
+
+# How many got transported, grouped by destination 
+data_train %>% 
+  mutate(Transported=if_else(Transported==TRUE,"Transported","Not transported")) %>%
+  group_by(VIP,Transported) %>% 
+  summarise(`Number of observations` = n()) %>% 
+  ggplot(aes(x = Transported,
+             y = `Number of observations`,
+             fill = VIP))+
+  geom_bar(stat = "identity")+
+  xlab("")+
+  scale_y_continuous(n.breaks=6)+
+  theme_bw()
+
+# How many got transported, grouped by cryosleep
+data_train %>% 
+  mutate(Transported=if_else(Transported==TRUE,"Transported","Not transported")) %>%
+  group_by(CryoSleep,Transported) %>% 
+  summarise(`Number of observations` = n()) %>% 
+  ggplot(aes(x = Transported,
+             y = `Number of observations`,
+             fill = CryoSleep))+
+  geom_bar(stat = "identity")+
+  xlab("")+
+  scale_y_continuous(n.breaks=6)+
+  theme_bw()
+
+# How many got transported, grouped by cryosleep
+data_train %>% 
+  filter(!is.na(Deck)) %>% 
+  mutate(Transported=if_else(Transported==TRUE,"Transported","Not transported")) %>%
+  group_by(Deck,Transported) %>% 
+  summarise(`Number of observations` = n()) %>% 
+  ggplot(aes(x = Deck,
+             y = `Number of observations`,
+             fill = Transported))+
+  geom_bar(stat = "identity")+
+  xlab("")+
+  scale_y_continuous(n.breaks=7)+
+  theme_bw()
+
+# Density on age
+data_train %>% 
+  mutate(Transported=if_else(Transported==TRUE,"Transported","Not transported")) %>%
+  ggplot(aes(x = Age,fill = Transported))+
+  # facet_wrap(.~Transported)+
+  geom_histogram()+
+  ylab("Frequency")+
+  theme_bw()
+
+
+```
+
+## Fill missing values
+
+For numeric variables, use median.
+For categorical variables, use mode.
+
+```{r,eval=TRUE}
+
+# Obtain numerical columns
+numeric_col <- na_values_col[`Number of missing values`!=0 & Class=="numeric"]$Column
+
+median_numeric_col<- data_train[,lapply(.SD,function(x)mean(x,na.rm=TRUE)),.SDcols = numeric_col]
+
+data_train[,(na_values_col$Column):=lapply(.SD,function(x)ifelse(is.na(x),median(x,na.rm = TRUE),x)),.SDcols = (na_values_col$Column)]
+
+```
+
+
+## Correlation analysis
+```{r,eval=TRUE}
+
+# Classify class for each column
+col_class <- sapply(data_train,class)
+
+# Extract numerical columns
+col_class_numeric <- col_class[col_class=="numeric"]
+
+cor_matrix <- cor(data_train[,.SD,.SDcols = names(col_class_numeric)])
+
+# Vizualise correlation matrix. Lower triangular
+ggcorrplot(cor_matrix,type = "lower")
+
+```
+
+# Fit a classification model
+```{r,eval=TRUE}
+
+# Transform to 1 and 0.
+data_train[,Transported:=ifelse(Transported==TRUE,1,0)]
+
+logistic_reg <- glm(formula = Transported ~ HomePlanet + CryoSleep+Destination + Age, family = "binomial", 
+data = data_train)
+
+summary(logistic_reg)
+
+# Prediction on the test dataset
+test_predicton <- predict(logistic_reg,data_test[,.(HomePlanet,CryoSleep,
+                                                    Destination,Age)])
+
+# Add the prediction to the submission file. Using a cutoff on 0.5
+
+
+
+```
+
