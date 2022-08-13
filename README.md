@@ -1,1 +1,1 @@
-Kaggle competions 
+Contains code for Kaggle competions
