@@ -211,6 +211,7 @@ data_train %>%
 
 # How many got transported, grouped by destination 
 data_train %>% 
+  filter(!is.na(VIP)) %>% 
   mutate(Transported=if_else(Transported==TRUE,"Transported","Not transported")) %>%
   group_by(VIP,Transported) %>% 
   summarise(`Number of observations` = n()) %>% 
