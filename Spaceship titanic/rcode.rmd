@@ -274,7 +274,7 @@ numeric_col <- na_values_col[`Number of missing values`!=0 & Class=="numeric"]$C
 
 median_numeric_col<- data_train[,lapply(.SD,function(x)mean(x,na.rm=TRUE)),.SDcols = numeric_col]
 
-data_train[,(na_values_col$Column):=lapply(.SD,function(x)ifelse(is.na(x),median(x,na.rm = TRUE),x)),.SDcols = (na_values_col$Column)]
+data_train[,(numeric_col):=lapply(.SD,function(x)ifelse(is.na(x),median(x,na.rm = TRUE),x)),.SDcols = numeric_col]
 
 ```
 
